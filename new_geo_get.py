@@ -45,13 +45,32 @@ REGION_MAP = {
 def fetch_lifecell():
     print("[1/3] Завантажуємо магазини lifecell...")
     url = "https://www.lifecell.ua/location-services/api/v1/pos/?limit=50000&offset=0&type=LIFECELL"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    # Повний набір реалістичних заголовоків для обходу блокування на GitHub Runner
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://www.lifecell.ua/uk/shops/",
+        "Origin": "https://www.lifecell.ua",
+        "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin"
+    }
 
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
-        data = response.json()
 
+        # Перевірка чи сервер повернув дійсно JSON, а не HTML сторінку блокування
+        if "application/json" not in response.headers.get("Content-Type", ""):
+            print(f" -> Помилка: Сервер lifecell повернув HTML замість JSON (можливе блокування IP). Status: {response.status_code}")
+            return []
+
+        data = response.json()
         raw = data.get("results", [])
         normalized = []
 
