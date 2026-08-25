@@ -3,12 +3,12 @@ import os
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-from curl_cffi import requests
 import reverse_geocoder as rg
 
 # Налаштування
 OUTPUT_JSON_FILE = "all_shops.json"
 OUTPUT_EXCEL_FILE = "all_shops.xlsx"
+BACKUP_JSON_FILE = "all_shops_bcp.json"  # Ручний бекап для lifecell
 
 # Мапінг англійських назв областей від reverse_geocoder в українські
 REGION_MAP = {
@@ -42,65 +42,83 @@ REGION_MAP = {
 }
 
 # ------------------------------------------------------------
-# 1. LIFECELL
+# 1. LIFECELL (з fallback на all_shops_bcp.json)
 # ------------------------------------------------------------
 def fetch_lifecell():
-    print("[1/3] Завантажуємо магазини lifecell через curl_cffi...")
+    print("[1/3] Завантажуємо магазини lifecell з API...")
     url = "https://www.lifecell.ua/location-services/api/v1/pos/?limit=50000&offset=0&type=LIFECELL"
     
     headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://www.lifecell.ua/uk/shops/",
+        "Referer": "https://www.lifecell.ua/uk/shops/"
     }
 
     try:
-        # impersonate="chrome120" повністю мімікрує під реальний браузер Chrome
-        response = requests.get(url, headers=headers, impersonate="chrome120", timeout=30)
+        response = requests.get(url, headers=headers, timeout=20)
         
-        if response.status_code != 200:
-            print(f" -> Помилка HTTP {response.status_code} від lifecell.")
-            return []
+        # Перевірка чи повернувся JSON, а не HTML від Cloudflare
+        if response.status_code == 200 and "application/json" in response.headers.get("Content-Type", ""):
+            data = response.json()
+            raw = data.get("results", [])
+            normalized = []
 
-        if "application/json" not in response.headers.get("Content-Type", ""):
-            print(f" -> Сервер lifecell все одно повернув HTML. Status: {response.status_code}")
-            return []
+            for item in raw:
+                lat = item.get("lat") or item.get("latitude")
+                lng = item.get("lng") or item.get("lon") or item.get("longitude")
 
-        data = response.json()
-        raw = data.get("results", [])
-        normalized = []
+                if lat is None or lng is None:
+                    continue
 
-        for item in raw:
-            lat = item.get("lat") or item.get("latitude")
-            lng = item.get("lng") or item.get("lon") or item.get("longitude")
+                try:
+                    lat = float(lat)
+                    lng = float(lng)
+                except (TypeError, ValueError):
+                    continue
 
-            if lat is None or lng is None:
-                continue
+                normalized.append({
+                    "provider": "lifecell",
+                    "id": item.get("id"),
+                    "name": item.get("name") or "lifecell",
+                    "address": item.get("address") or "",
+                    "city": item.get("city") or "",
+                    "region": item.get("region") or "",
+                    "lat": lat,
+                    "lng": lng,
+                    "working_hours": item.get("working_hours") or item.get("schedule") or ""
+                })
 
-            try:
-                lat = float(lat)
-                lng = float(lng)
-            except (TypeError, ValueError):
-                continue
+            if normalized:
+                print(f" -> [API] Успішно завантажено {len(normalized)} магазинів lifecell.")
+                return normalized
 
-            normalized.append({
-                "provider": "lifecell",
-                "id": item.get("id"),
-                "name": item.get("name") or "lifecell",
-                "address": item.get("address") or "",
-                "city": item.get("city") or "",
-                "region": item.get("region") or "",
-                "lat": lat,
-                "lng": lng,
-                "working_hours": item.get("working_hours") or item.get("schedule") or ""
-            })
-
-        print(f" -> Знайдено {len(normalized)} магазинів lifecell.")
-        return normalized
+        print(" -> [УВАГА] API lifecell недоступне (блокування IP/HTML відповідь).")
 
     except Exception as e:
-        print(f" -> Помилка при отриманні lifecell: {e}")
-        return []
+        print(f" -> [ПОМИЛКА] Спроба запиту до lifecell завершилася збоєм: {e}")
+
+    # Fallback: зчитування з ручного бекапу all_shops_bcp.json
+    print(f" -> [BACKUP] Витягуємо дані lifecell з резервного файлу: {BACKUP_JSON_FILE}...")
+    if os.path.exists(BACKUP_JSON_FILE):
+        try:
+            with open(BACKUP_JSON_FILE, "r", encoding="utf-8") as f:
+                backup_data = json.load(f)
+                
+                # Фільтруємо лише точки lifecell
+                lifecell_from_backup = [
+                    item for item in backup_data 
+                    if isinstance(item, dict) and item.get("provider") == "lifecell"
+                ]
+
+                print(f" -> [BACKUP] Успішно підтягнуто {len(lifecell_from_backup)} магазинів lifecell з резервного файла.")
+                return lifecell_from_backup
+        except Exception as e:
+            print(f" -> [ПОМИЛКА BACKUP] Не вдалося зчитати {BACKUP_JSON_FILE}: {e}")
+    else:
+        print(f" -> [ПОМИЛКА BACKUP] Файл {BACKUP_JSON_FILE} не знайдено у корені!")
+
+    return []
 
 # ------------------------------------------------------------
 # 2. VODAFONE
@@ -265,7 +283,7 @@ def fetch_kyivstar():
         return []
 
 # ------------------------------------------------------------
-# 4. REVERSE GEOCODING
+# 4. REVERSE GEOCODING (Визначення області за координатами)
 # ------------------------------------------------------------
 def enrich_with_regions(shops):
     print("\n[Геолокація] Визначаємо області за координатами через reverse_geocoder...")
@@ -289,22 +307,6 @@ def enrich_with_regions(shops):
     return shops
 
 # ------------------------------------------------------------
-# FALLBACK: Збереження попередніх даних lifecell, якщо запит заблоковано
-# ------------------------------------------------------------
-def get_cached_lifecell_shops():
-    if os.path.exists(OUTPUT_JSON_FILE):
-        try:
-            with open(OUTPUT_JSON_FILE, "r", encoding="utf-8") as f:
-                old_data = json.load(f)
-                cached = [s for s in old_data if s.get("provider") == "lifecell"]
-                if cached:
-                    print(f" [РЕЗЕРВ] Використовуємо {len(cached)} збережених магазинів lifecell з попереднього розрашунку.")
-                    return cached
-        except Exception as e:
-            print(f"Не вдалося прочитати локальний бекап: {e}")
-    return []
-
-# ------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------
 def main():
@@ -313,17 +315,12 @@ def main():
     print("=" * 60)
 
     lifecell_shops = fetch_lifecell()
-    
-    # Якщо запуск на GitHub Actions завершився блокуванням IP від lifecell, підтягуємо кеш
-    if not lifecell_shops:
-        lifecell_shops = get_cached_lifecell_shops()
-
     vodafone_shops = fetch_vodafone()
     kyivstar_shops = fetch_kyivstar()
 
     all_shops = lifecell_shops + vodafone_shops + kyivstar_shops
 
-    # Збагачуємо дані областю за координатами
+    # Збагачуємо всі записи областю за координатами
     all_shops = enrich_with_regions(all_shops)
 
     # Збереження у JSON
