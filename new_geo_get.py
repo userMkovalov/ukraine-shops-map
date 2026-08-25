@@ -3,6 +3,7 @@ import os
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
+from curl_cffi import requests
 import reverse_geocoder as rg
 
 # Налаштування
@@ -44,40 +45,25 @@ REGION_MAP = {
 # 1. LIFECELL
 # ------------------------------------------------------------
 def fetch_lifecell():
-    print("[1/3] Завантажуємо магазини lifecell...")
+    print("[1/3] Завантажуємо магазини lifecell через curl_cffi...")
     url = "https://www.lifecell.ua/location-services/api/v1/pos/?limit=50000&offset=0&type=LIFECELL"
     
-    session = requests.Session()
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
         "Referer": "https://www.lifecell.ua/uk/shops/",
-        "Origin": "https://www.lifecell.ua",
-        "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "Connection": "keep-alive"
     }
 
     try:
-        # Спочатку робимо візит на головну сторінку для отримання кукі
-        session.get("https://www.lifecell.ua/uk/shops/", headers=headers, timeout=15)
-
-        response = session.get(url, headers=headers, timeout=30)
+        # impersonate="chrome120" повністю мімікрує під реальний браузер Chrome
+        response = requests.get(url, headers=headers, impersonate="chrome120", timeout=30)
         
         if response.status_code != 200:
             print(f" -> Помилка HTTP {response.status_code} від lifecell.")
             return []
 
-        # Перевіряємо, чи повернувся дійсно JSON, а не HTML-сторінка блокування
-        content_type = response.headers.get("Content-Type", "")
-        if "application/json" not in content_type:
-            print(f" -> Сервер lifecell повернув Content-Type '{content_type}' замість JSON (блокування IP на GitHub Actions).")
+        if "application/json" not in response.headers.get("Content-Type", ""):
+            print(f" -> Сервер lifecell все одно повернув HTML. Status: {response.status_code}")
             return []
 
         data = response.json()
