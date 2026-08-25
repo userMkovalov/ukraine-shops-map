@@ -1,4 +1,5 @@
 import json
+import os
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -46,11 +47,12 @@ def fetch_lifecell():
     print("[1/3] Завантажуємо магазини lifecell...")
     url = "https://www.lifecell.ua/location-services/api/v1/pos/?limit=50000&offset=0&type=LIFECELL"
     
-    # Повний набір реалістичних заголовоків для обходу блокування на GitHub Runner
+    session = requests.Session()
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
         "Referer": "https://www.lifecell.ua/uk/shops/",
         "Origin": "https://www.lifecell.ua",
         "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
@@ -58,16 +60,24 @@ def fetch_lifecell():
         "Sec-Ch-Ua-Platform": '"Windows"',
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin"
+        "Sec-Fetch-Site": "same-origin",
+        "Connection": "keep-alive"
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
+        # Спочатку робимо візит на головну сторінку для отримання кукі
+        session.get("https://www.lifecell.ua/uk/shops/", headers=headers, timeout=15)
 
-        # Перевірка чи сервер повернув дійсно JSON, а не HTML сторінку блокування
-        if "application/json" not in response.headers.get("Content-Type", ""):
-            print(f" -> Помилка: Сервер lifecell повернув HTML замість JSON (можливе блокування IP). Status: {response.status_code}")
+        response = session.get(url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            print(f" -> Помилка HTTP {response.status_code} від lifecell.")
+            return []
+
+        # Перевіряємо, чи повернувся дійсно JSON, а не HTML-сторінка блокування
+        content_type = response.headers.get("Content-Type", "")
+        if "application/json" not in content_type:
+            print(f" -> Сервер lifecell повернув Content-Type '{content_type}' замість JSON (блокування IP на GitHub Actions).")
             return []
 
         data = response.json()
@@ -171,7 +181,6 @@ def fetch_vodafone():
                                     "working_hours": working_hours
                                 })
 
-        # Видалення дублікатів
         unique = []
         seen = set()
         for shop in normalized:
@@ -194,7 +203,6 @@ def fetch_kyivstar():
     print("[3/3] Завантажуємо магазини Kyivstar...")
     url = "https://kyivstar.ua/api/pos-shops?locale=uk&start=0&limit=10000"
     
-    # Повний набір заголовків, щоб запобігти таймаутам/блокуванню
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
@@ -227,17 +235,14 @@ def fetch_kyivstar():
             except (TypeError, ValueError):
                 continue
 
-            # Збирання адреси
             street_type = item.get("streetType", "") or ""
             street_name = item.get("streetName", "") or ""
             building = item.get("buildingNumber", "") or ""
             full_address = f"{street_type} {street_name} {building}".strip()
 
-            # Місто
             city_obj = item.get("city", {}) or {}
             city_name = city_obj.get("city", "") if isinstance(city_obj, dict) else ""
 
-            # Графік роботи
             wh_list = item.get("workingHours", [])
             wh_str_list = []
             if isinstance(wh_list, list):
@@ -260,7 +265,7 @@ def fetch_kyivstar():
                 "name": "Kyivstar",
                 "address": full_address,
                 "city": city_name,
-                "region": "",  # Kyivstar API не повертає область, додасть reverse_geocoder
+                "region": "",
                 "lat": lat,
                 "lng": lng,
                 "working_hours": working_hours
@@ -274,13 +279,12 @@ def fetch_kyivstar():
         return []
 
 # ------------------------------------------------------------
-# 4. REVERSE GEOCODING (Визначення області за координатами)
+# 4. REVERSE GEOCODING
 # ------------------------------------------------------------
 def enrich_with_regions(shops):
     print("\n[Геолокація] Визначаємо області за координатами через reverse_geocoder...")
     
     coords = [(shop["lat"], shop["lng"]) for shop in shops]
-    
     if not coords:
         return shops
 
@@ -292,11 +296,27 @@ def enrich_with_regions(shops):
         ua_region = REGION_MAP.get(admin1, admin1)
         
         shop["geo_region"] = ua_region
-        if not shop["region"]:
+        if not shop.get("region"):
             shop["region"] = ua_region
 
     print(" -> Області успішно додані!")
     return shops
+
+# ------------------------------------------------------------
+# FALLBACK: Збереження попередніх даних lifecell, якщо запит заблоковано
+# ------------------------------------------------------------
+def get_cached_lifecell_shops():
+    if os.path.exists(OUTPUT_JSON_FILE):
+        try:
+            with open(OUTPUT_JSON_FILE, "r", encoding="utf-8") as f:
+                old_data = json.load(f)
+                cached = [s for s in old_data if s.get("provider") == "lifecell"]
+                if cached:
+                    print(f" [РЕЗЕРВ] Використовуємо {len(cached)} збережених магазинів lifecell з попереднього розрашунку.")
+                    return cached
+        except Exception as e:
+            print(f"Не вдалося прочитати локальний бекап: {e}")
+    return []
 
 # ------------------------------------------------------------
 # MAIN
@@ -307,6 +327,11 @@ def main():
     print("=" * 60)
 
     lifecell_shops = fetch_lifecell()
+    
+    # Якщо запуск на GitHub Actions завершився блокуванням IP від lifecell, підтягуємо кеш
+    if not lifecell_shops:
+        lifecell_shops = get_cached_lifecell_shops()
+
     vodafone_shops = fetch_vodafone()
     kyivstar_shops = fetch_kyivstar()
 
