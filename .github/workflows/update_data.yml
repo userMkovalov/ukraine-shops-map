@@ -31,7 +31,7 @@ jobs:
       - name: Run scraper script
         run: |
           # Вкажи тут точну назву свого python-скрипта
-          python fetch_all_operators.py
+          python new_geo_get.py
 
       - name: Commit and Push updated data
         run: |
