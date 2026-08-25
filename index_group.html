@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Карта точок продажу операторів України</title>
+
+    <!-- LEAFLET CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .panel {
+            position: absolute;
+            z-index: 1000;
+            top: 15px;
+            left: 15px;
+            width: 340px;
+            max-width: calc(100vw - 30px);
+            background: rgba(255, 255, 255, 0.97);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel h2 {
+            margin: 0 0 12px;
+            font-size: 18px;
+            line-height: 1.3;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .stat {
+            background: #f3f4f6;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #6b7280;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            margin-top: 3px;
+        }
+
+        .btn-toggle {
+            width: 100%;
+            padding: 10px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 12px;
+            transition: background 0.2s;
+        }
+
+        .btn-toggle:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-toggle.active {
+            background: #4f46e5;
+        }
+
+        .filters {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            margin-bottom: 12px;
+        }
+
+        .filter-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .filter-item input {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .select-input,
+        .search {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 7px;
+            outline: none;
+            margin-bottom: 8px;
+            background: white;
+            font-size: 13px;
+        }
+
+        .select-input:focus,
+        .search:focus {
+            border-color: #6b7280;
+            box-shadow: 0 0 0 2px rgba(107, 114, 128, .1);
+        }
+
+        .status {
+            font-size: 12px;
+            color: #6b7280;
+            line-height: 1.4;
+        }
+
+        .error {
+            color: #dc2626;
+        }
+
+        /* Жовтий для lifecell, синій для Kyivstar, червоний для Vodafone */
+        .dot-lifecell {
+            background: #eab308;
+        }
+
+        .dot-kyivstar {
+            background: #0284c7;
+        }
+
+        .dot-vodafone {
+            background: #dc2626;
+        }
+
+        .map-dot {
+            width: 18px;
+            height: 18px;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+        }
+
+        /* Стилі для брендованих маркерів-кластерів операторів */
+        .operator-cluster-marker {
+            color: white;
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 12px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        /* Чорний текст для кращої читабельності на жовтому фоні lifecell */
+        .operator-cluster-marker.bg-lifecell {
+            color: #000;
+        }
+
+        .operator-cluster-marker:hover {
+            transform: scale(1.2);
+            z-index: 999;
+        }
+
+        .popup {
+            font-family: Arial, sans-serif;
+            min-width: 200px;
+            max-width: 300px;
+        }
+
+        .popup-provider {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .popup-name {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .popup-address {
+            font-size: 13px;
+            color: #374151;
+            line-height: 1.4;
+        }
+
+        .popup-location {
+            font-size: 11px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .popup-hours {
+            font-size: 12px;
+            color: #4b5563;
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid #e5e7eb;
+            white-space: pre-line;
+        }
+
+        @media (max-width: 700px) {
+            .panel {
+                top: 10px;
+                left: 10px;
+                width: 310px;
+                max-width: calc(100vw - 20px);
+                padding: 13px;
+            }
+
+            .panel h2 {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="panel">
+        <h2>Точки операторів</h2>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-label">Всього точок</div>
+                <div class="stat-value" id="total">—</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">На карті</div>
+                <div class="stat-value" id="visible">—</div>
+            </div>
+        </div>
+
+        <button id="group-toggle" class="btn-toggle">
+            Схлопнути по областях
+        </button>
+
+        <div class="filters">
+            <label class="filter-item">
+                <input type="checkbox" id="check-lifecell" checked>
+                <span class="map-dot dot-lifecell" style="width:12px; height:12px;"></span>
+                <span>lifecell</span>
+            </label>
+
+            <label class="filter-item">
+                <input type="checkbox" id="check-kyivstar" checked>
+                <span class="map-dot dot-kyivstar" style="width:12px; height:12px;"></span>
+                <span>Kyivstar</span>
+            </label>
+
+            <label class="filter-item">
+                <input type="checkbox" id="check-vodafone" checked>
+                <span class="map-dot dot-vodafone" style="width:12px; height:12px;"></span>
+                <span>Vodafone</span>
+            </label>
+        </div>
+
+        <select id="region-select" class="select-input">
+            <option value="">Всі області України</option>
+        </select>
+
+        <input type="text" id="search" class="search" placeholder="Пошук (місто, адреса)...">
+
+        <div id="status" class="status">Завантаження даних...</div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        const map = L.map('map').setView([49.0, 31.0], 6);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        let allPoints = [];
+        let currentMarkers = [];
+        let isGroupedByRegion = false;
+
+        // Фіксований порядок операторів для лінійного вирівнювання (lifecell -> kyivstar -> vodafone)
+        const OPERATOR_ORDER = ['lifecell', 'kyivstar', 'vodafone'];
+
+        const OPERATOR_CONFIG = {
+            lifecell: { name: 'lifecell', color: '#eab308' },
+            kyivstar: { name: 'Kyivstar', color: '#0284c7' },
+            vodafone: { name: 'Vodafone', color: '#dc2626' }
+        };
+
+        function createIcon(provider) {
+            let colorClass = 'dot-lifecell';
+            if (provider === 'kyivstar') colorClass = 'dot-kyivstar';
+            if (provider === 'vodafone') colorClass = 'dot-vodafone';
+
+            return L.divIcon({
+                className: '',
+                html: `<div class="map-dot ${colorClass}"></div>`,
+                iconSize: [18, 18],
+                iconAnchor: [9, 9],
+                popupAnchor: [0, -10]
+            });
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, character => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[character]));
+        }
+
+        function normalizeRegion(region) {
+            if (region === null || region === undefined) return '';
+            return String(region).trim();
+        }
+
+        function populateRegions(points) {
+            const select = document.getElementById('region-select');
+            const regions = new Set();
+
+            points.forEach(point => {
+                const region = normalizeRegion(point.geo_region || point.region);
+                if (region) regions.add(region);
+            });
+
+            const sortedRegions = Array.from(regions).sort((a, b) => a.localeCompare(b, 'uk'));
+
+            select.innerHTML = `<option value="">Всі області України</option>`;
+
+            sortedRegions.forEach(region => {
+                const option = document.createElement('option');
+                option.value = region;
+                option.textContent = region;
+                select.appendChild(option);
+            });
+        }
+
+        async function loadData() {
+            const status = document.getElementById('status');
+
+            try {
+                const response = await fetch('all_shops.json');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                allPoints = await response.json();
+
+                allPoints = allPoints
+                    .map(point => ({
+                        ...point,
+                        lat: Number(point.lat),
+                        lng: Number(point.lng),
+                        region: normalizeRegion(point.geo_region || point.region)
+                    }))
+                    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+                document.getElementById('total').textContent = allPoints.length.toLocaleString('uk-UA');
+
+                populateRegions(allPoints);
+                renderPoints(true);
+
+                status.textContent = `Завантажено ${allPoints.length.toLocaleString('uk-UA')} точок • ${new Date().toLocaleTimeString('uk-UA')}`;
+
+            } catch (error) {
+                console.error(error);
+                status.classList.add('error');
+                status.textContent = 'Помилка завантаження all_shops.json';
+            }
+        }
+
+        function clearMarkers() {
+            currentMarkers.forEach(marker => map.removeLayer(marker));
+            currentMarkers = [];
+        }
+
+        function filterPoints() {
+            const selectedRegion = document.getElementById('region-select').value;
+            const query = document.getElementById('search').value.trim().toLowerCase();
+
+            const showLifecell = document.getElementById('check-lifecell').checked;
+            const showKyivstar = document.getElementById('check-kyivstar').checked;
+            const showVodafone = document.getElementById('check-vodafone').checked;
+
+            return allPoints.filter(point => {
+                if (point.provider === 'lifecell' && !showLifecell) return false;
+                if (point.provider === 'kyivstar' && !showKyivstar) return false;
+                if (point.provider === 'vodafone' && !showVodafone) return false;
+
+                if (selectedRegion && point.region !== selectedRegion) return false;
+
+                if (query) {
+                    const text = [
+                        point.name || '',
+                        point.address || '',
+                        point.city || '',
+                        point.region || ''
+                    ].join(' ').toLowerCase();
+
+                    if (!text.includes(query)) return false;
+                }
+
+                return true;
+            });
+        }
+
+        function renderPoints(shouldFitBounds = false) {
+            clearMarkers();
+
+            const filtered = filterPoints();
+            const bounds = [];
+
+            if (isGroupedByRegion) {
+                // ==========================================
+                // Схлопування у лінію по горизонталі
+                // ==========================================
+                const regionGroups = {};
+
+                filtered.forEach(point => {
+                    const reg = point.region || 'Невизначено';
+                    const prov = point.provider || 'unknown';
+
+                    if (!regionGroups[reg]) {
+                        regionGroups[reg] = {
+                            sumLat: 0,
+                            sumLng: 0,
+                            count: 0,
+                            operators: {}
+                        };
+                    }
+
+                    regionGroups[reg].sumLat += point.lat;
+                    regionGroups[reg].sumLng += point.lng;
+                    regionGroups[reg].count += 1;
+
+                    if (!regionGroups[reg].operators[prov]) {
+                        regionGroups[reg].operators[prov] = [];
+                    }
+                    regionGroups[reg].operators[prov].push(point);
+                });
+
+                Object.keys(regionGroups).forEach(regionName => {
+                    const group = regionGroups[regionName];
+                    const baseLat = group.sumLat / group.count;
+                    const baseLng = group.sumLng / group.count;
+
+                    // Відсортований список операторів, які присутні у цій області
+                    const activeOperators = OPERATOR_ORDER.filter(op => group.operators[op] && group.operators[op].length > 0);
+                    const totalOps = activeOperators.length;
+
+                    // Обчислюємо розмір для кожного оператора
+                    const sizes = activeOperators.map(op => {
+                        const count = group.operators[op].length;
+                        return Math.min(Math.max(28, Math.floor(Math.sqrt(count) * 5)), 55);
+                    });
+
+                    // Динамічний крок довготи (lng) залежно від кількості операторів
+                    const lngStep = 0.16;
+
+                    activeOperators.forEach((prov, idx) => {
+                        const opsPoints = group.operators[prov];
+                        const count = opsPoints.length;
+                        const config = OPERATOR_CONFIG[prov] || { name: prov, color: '#6b7280' };
+                        const size = sizes[idx];
+
+                        // Вирівнювання суворо по горизонтальній лінії (зміна тільки долготи - lng)
+                        let markerLng = baseLng;
+                        if (totalOps > 1) {
+                            const offsetFactor = idx - (totalOps - 1) / 2;
+                            markerLng = baseLng + offsetFactor * lngStep;
+                        }
+
+                        const textClass = prov === 'lifecell' ? 'bg-lifecell' : '';
+
+                        const customClusterIcon = L.divIcon({
+                            className: '',
+                            html: `<div class="operator-cluster-marker ${textClass}" style="width:${size}px; height:${size}px; background-color:${config.color};">${count}</div>`,
+                            iconSize: [size, size],
+                            iconAnchor: [size / 2, size / 2]
+                        });
+
+                        const marker = L.marker([baseLat, markerLng], { icon: customClusterIcon });
+
+                        marker.bindPopup(`
+                            <div class="popup">
+                                <div class="popup-provider" style="color: ${config.color};">
+                                    ${escapeHtml(config.name)}
+                                </div>
+                                <div class="popup-name">${escapeHtml(regionName)} область</div>
+                                <div class="popup-address"><b>Точок оператора:</b> ${count}</div>
+                            </div>
+                        `);
+
+                        marker.on('click', () => {
+                            document.getElementById('region-select').value = regionName;
+                            isGroupedByRegion = false;
+                            document.getElementById('group-toggle').classList.remove('active');
+                            document.getElementById('group-toggle').textContent = 'Схлопнути по областях';
+                            renderPoints(true);
+                        });
+
+                        marker.addTo(map);
+                        currentMarkers.push(marker);
+                        bounds.push([baseLat, markerLng]);
+                    });
+                });
+
+            } else {
+                // ==========================================
+                // Звичайний поточковий режим
+                // ==========================================
+                filtered.forEach(point => {
+                    const marker = L.marker([point.lat, point.lng], {
+                        icon: createIcon(point.provider)
+                    });
+
+                    let providerName = point.provider || '';
+                    let providerColor = '#eab308';
+
+                    if (point.provider === 'lifecell') {
+                        providerName = 'lifecell';
+                        providerColor = '#eab308';
+                    } else if (point.provider === 'kyivstar') {
+                        providerName = 'Kyivstar';
+                        providerColor = '#0284c7';
+                    } else if (point.provider === 'vodafone') {
+                        providerName = 'Vodafone';
+                        providerColor = '#dc2626';
+                    }
+
+                    const location = [point.city, point.region].filter(Boolean).join(', ');
+                    const workingHours = point.working_hours ? `<div class="popup-hours"><b>Графік роботи:</b>\n${escapeHtml(point.working_hours)}</div>` : '';
+
+                    marker.bindPopup(`
+                        <div class="popup">
+                            <div class="popup-provider" style="color: ${providerColor};">
+                                ${escapeHtml(providerName)}
+                            </div>
+                            <div class="popup-name">
+                                ${escapeHtml(point.name)}
+                            </div>
+                            <div class="popup-address">
+                                ${escapeHtml(point.address)}
+                            </div>
+                            <div class="popup-location">
+                                ${escapeHtml(location)}
+                            </div>
+                            ${workingHours}
+                        </div>
+                    `);
+
+                    marker.addTo(map);
+                    currentMarkers.push(marker);
+                    bounds.push([point.lat, point.lng]);
+                });
+            }
+
+            document.getElementById('visible').textContent = filtered.length.toLocaleString('uk-UA');
+
+            if (shouldFitBounds && bounds.length > 0) {
+                map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+            }
+        }
+
+        document.getElementById('group-toggle').addEventListener('click', function () {
+            isGroupedByRegion = !isGroupedByRegion;
+
+            if (isGroupedByRegion) {
+                this.classList.add('active');
+                this.textContent = 'Розхлопнути у всі точки';
+            } else {
+                this.classList.remove('active');
+                this.textContent = 'Схлопнути по областях';
+            }
+
+            renderPoints(true);
+        });
+
+        document.getElementById('region-select').addEventListener('change', () => renderPoints(true));
+        document.getElementById('search').addEventListener('input', () => renderPoints(false));
+        document.getElementById('check-lifecell').addEventListener('change', () => renderPoints(false));
+        document.getElementById('check-kyivstar').addEventListener('change', () => renderPoints(false));
+        document.getElementById('check-vodafone').addEventListener('change', () => renderPoints(false));
+
+        loadData();
+    </script>
+</body>
+
+</html>
