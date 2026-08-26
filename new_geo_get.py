@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 import reverse_geocoder as rg
+from curl_cffi import requests
 
 # Налаштування
 OUTPUT_JSON_FILE = "all_shops.json"
@@ -62,9 +63,9 @@ def fetch_lifecell():
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=20)
+        # impersonate="chrome123" емулює повний TLS/JA3 handshake браузера Chrome
+        response = requests.get(url, headers=headers, impersonate="chrome123", timeout=20)
         
-        # Перевірка чи повернувся JSON, а не HTML від Cloudflare
         if response.status_code == 200 and "application/json" in response.headers.get("Content-Type", ""):
             data = response.json()
             raw = data.get("results", [])
@@ -97,25 +98,34 @@ def fetch_lifecell():
 
             if normalized:
                 print(f" -> [API] Успішно завантажено {len(normalized)} магазинів lifecell.")
+                
+                # Оновлюємо бекап-файл свіжими даними після успішного запиту
+                try:
+                    with open(BACKUP_JSON_FILE, "w", encoding="utf-8") as f:
+                        json.dump(normalized, f, ensure_ascii=False, indent=2)
+                    print(f" -> [BACKUP] Резервний файл {BACKUP_JSON_FILE} успішно оновлено.")
+                except Exception as bcp_err:
+                    print(f" -> [УВАГА] Не вдалося оновити бекап-файл: {bcp_err}")
+
                 return normalized
 
-        print(" -> [УВАГА] API lifecell недоступне (блокування IP/HTML відповідь).")
+        print(f" -> [УВАГА] API lifecell повернув статус {response.status_code} або не-JSON відповідь.")
 
     except Exception as e:
         print(f" -> [ПОМИЛКА] Спроба запиту до lifecell завершилася збоєм: {e}")
 
-    # Fallback: зчитування з ручного бекапу all_shops_bcp.json
+    # Fallback: зчитування з резервного файлу
     print(f" -> [BACKUP] Витягуємо дані lifecell з резервного файлу: {BACKUP_JSON_FILE}...")
     if os.path.exists(BACKUP_JSON_FILE):
         try:
             with open(BACKUP_JSON_FILE, "r", encoding="utf-8") as f:
                 backup_data = json.load(f)
                 
-                # Фільтруємо лише точки lifecell
+                # Підтримуємо і структуру з повним масивом, і чистий спискок lifecell
                 lifecell_from_backup = [
                     item for item in backup_data 
                     if isinstance(item, dict) and item.get("provider") == "lifecell"
-                ]
+                ] or backup_data
 
                 print(f" -> [BACKUP] Успішно підтягнуто {len(lifecell_from_backup)} магазинів lifecell з резервного файла.")
                 return lifecell_from_backup
@@ -125,7 +135,6 @@ def fetch_lifecell():
         print(f" -> [ПОМИЛКА BACKUP] Файл {BACKUP_JSON_FILE} не знайдено у корені!")
 
     return []
-
 # ------------------------------------------------------------
 # 2. VODAFONE
 # ------------------------------------------------------------
