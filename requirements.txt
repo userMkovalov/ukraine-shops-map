@@ -1,6 +1,6 @@
 requests
 pandas
-openpyxl
 beautifulsoup4
 reverse_geocoder
 curl_cffi
+openpyxl
