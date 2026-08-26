@@ -1,15 +1,14 @@
 import json
 import os
-import requests
 import pandas as pd
+import requests
 from bs4 import BeautifulSoup
 import reverse_geocoder as rg
-from curl_cffi import requests
 
 # Налаштування
 OUTPUT_JSON_FILE = "all_shops.json"
 OUTPUT_EXCEL_FILE = "all_shops.xlsx"
-BACKUP_JSON_FILE = "all_shops_bcp.json"  # Ручний бекап для lifecell
+BACKUP_JSON_FILE = "all_shops_bcp.json"  # Чистий бекап lifecell
 
 # Мапінг англійських назв областей від reverse_geocoder в українські
 REGION_MAP = {
@@ -43,103 +42,36 @@ REGION_MAP = {
 }
 
 # ------------------------------------------------------------
-# 1. LIFECELL (з fallback на all_shops_bcp.json)
+# 1. LIFECELL (Суворо з локального бекап-файлу)
 # ------------------------------------------------------------
 def fetch_lifecell():
-    print("[1/3] Завантажуємо магазини lifecell з API...")
-    url = "https://www.lifecell.ua/location-services/api/v1/pos/?limit=50000&offset=0&type=LIFECELL"
+    print(f"[1/3] Читаємо магазини lifecell з файлу: {BACKUP_JSON_FILE}...")
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Sec-Ch-Ua": '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "Referer": "https://www.lifecell.ua/uk/shops/"
-    }
-
-    try:
-        # impersonate="chrome123" емулює повний TLS/JA3 handshake браузера Chrome
-        response = requests.get(url, headers=headers, impersonate="chrome123", timeout=20)
-        
-        if response.status_code == 200 and "application/json" in response.headers.get("Content-Type", ""):
-            data = response.json()
-            raw = data.get("results", [])
-            normalized = []
-
-            for item in raw:
-                lat = item.get("lat") or item.get("latitude")
-                lng = item.get("lng") or item.get("lon") or item.get("longitude")
-
-                if lat is None or lng is None:
-                    continue
-
-                try:
-                    lat = float(lat)
-                    lng = float(lng)
-                except (TypeError, ValueError):
-                    continue
-
-                normalized.append({
-                    "provider": "lifecell",
-                    "id": item.get("id"),
-                    "name": item.get("name") or "lifecell",
-                    "address": item.get("address") or "",
-                    "city": item.get("city") or "",
-                    "region": item.get("region") or "",
-                    "lat": lat,
-                    "lng": lng,
-                    "working_hours": item.get("working_hours") or item.get("schedule") or ""
-                })
-
-            if normalized:
-                print(f" -> [API] Успішно завантажено {len(normalized)} магазинів lifecell.")
-                
-                # Оновлюємо бекап-файл свіжими даними після успішного запиту
-                try:
-                    with open(BACKUP_JSON_FILE, "w", encoding="utf-8") as f:
-                        json.dump(normalized, f, ensure_ascii=False, indent=2)
-                    print(f" -> [BACKUP] Резервний файл {BACKUP_JSON_FILE} успішно оновлено.")
-                except Exception as bcp_err:
-                    print(f" -> [УВАГА] Не вдалося оновити бекап-файл: {bcp_err}")
-
-                return normalized
-
-        print(f" -> [УВАГА] API lifecell повернув статус {response.status_code} або не-JSON відповідь.")
-
-    except Exception as e:
-        print(f" -> [ПОМИЛКА] Спроба запиту до lifecell завершилася збоєм: {e}")
-
-    # Fallback: зчитування з резервного файлу
-    print(f" -> [BACKUP] Витягуємо дані lifecell з резервного файлу: {BACKUP_JSON_FILE}...")
     if os.path.exists(BACKUP_JSON_FILE):
         try:
             with open(BACKUP_JSON_FILE, "r", encoding="utf-8") as f:
                 backup_data = json.load(f)
                 
-                # Підтримуємо і структуру з повним масивом, і чистий спискок lifecell
-                lifecell_from_backup = [
+                # Забезпечуємо роботу як з чистим масивом lifecell, так і з загальним JSON
+                lifecell_shops = [
                     item for item in backup_data 
                     if isinstance(item, dict) and item.get("provider") == "lifecell"
                 ] or backup_data
 
-                print(f" -> [BACKUP] Успішно підтягнуто {len(lifecell_from_backup)} магазинів lifecell з резервного файла.")
-                return lifecell_from_backup
+                print(f" -> Знайдено {len(lifecell_shops)} магазинів lifecell у бекапі.")
+                return lifecell_shops
         except Exception as e:
-            print(f" -> [ПОМИЛКА BACKUP] Не вдалося зчитати {BACKUP_JSON_FILE}: {e}")
+            print(f" -> [ПОМИЛКА] Не вдалося зчитати {BACKUP_JSON_FILE}: {e}")
     else:
-        print(f" -> [ПОМИЛКА BACKUP] Файл {BACKUP_JSON_FILE} не знайдено у корені!")
+        print(f" -> [ПОМИЛКА] Файл {BACKUP_JSON_FILE} відсутній у репозиторії!")
 
     return []
+
 # ------------------------------------------------------------
-# 2. VODAFONE
+# 2. VODAFONE (Живий запит)
 # ------------------------------------------------------------
 def fetch_vodafone():
-    print("[2/3] Завантажуємо магазини Vodafone...")
+    print("[2/3] Завантажуємо магазини Vodafone з API...")
     url = "https://www.vodafone.ua/shops/kyiv"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -216,10 +148,10 @@ def fetch_vodafone():
         return []
 
 # ------------------------------------------------------------
-# 3. KYIVSTAR
+# 3. KYIVSTAR (Живий запит)
 # ------------------------------------------------------------
 def fetch_kyivstar():
-    print("[3/3] Завантажуємо магазини Kyivstar...")
+    print("[3/3] Завантажуємо магазини Kyivstar з API...")
     url = "https://kyivstar.ua/api/pos-shops?locale=uk&start=0&limit=10000"
     
     headers = {
@@ -298,7 +230,7 @@ def fetch_kyivstar():
         return []
 
 # ------------------------------------------------------------
-# 4. REVERSE GEOCODING (Визначення області за координатами)
+# 4. REVERSE GEOCODING (Область за координатами)
 # ------------------------------------------------------------
 def enrich_with_regions(shops):
     print("\n[Геолокація] Визначаємо області за координатами через reverse_geocoder...")
