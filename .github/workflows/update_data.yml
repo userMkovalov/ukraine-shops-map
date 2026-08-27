@@ -2,7 +2,7 @@ name: Update Shop Data
 
 on:
   schedule:
-    # Запуск щодня о 03:00 за київським часом (01:00 UTC)
+    # 01:00 UTC = 04:00 (Літній час) / 03:00 (Зимовий час) за Києвом
     - cron: '0 1 * * *'
   # Дозволяє запустити оновлення вручну через кнопку у вкладці Actions
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write  # Дозвіл для бота робити комміт у репозиторій
+      contents: write  # Дозвіл робити commit/push у репозиторій
 
     steps:
       - name: Checkout repository
@@ -30,7 +30,6 @@ jobs:
 
       - name: Run scraper script
         run: |
-          # Вкажи тут точну назву свого python-скрипта
           python new_geo_get.py
 
       - name: Commit and Push updated data
