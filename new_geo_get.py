@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
@@ -9,6 +10,10 @@ import reverse_geocoder as rg
 OUTPUT_JSON_FILE = "all_shops.json"
 OUTPUT_EXCEL_FILE = "all_shops.xlsx"
 BACKUP_JSON_FILE = "all_shops_bcp.json"  # Чистий бекап lifecell
+
+# Файли для зберігання поточних бекапів перед запуском
+BACKUP_RUN_JSON = "all_shops_backup_last.json"
+BACKUP_RUN_EXCEL = "all_shops_backup_last.xlsx"
 
 # Мапінг англійських назв областей від reverse_geocoder в українські
 REGION_MAP = {
@@ -42,17 +47,65 @@ REGION_MAP = {
 }
 
 # ------------------------------------------------------------
+# 0. МЕХАНІЗМ БЕКАПУ ТА ВІДНОВЛЕННЯ
+# ------------------------------------------------------------
+def make_initial_backup():
+    """Створює резервну копію існуючих файлів перед запуском"""
+    print("[БЕКАП] Перевіряємо та створюємо бекап поточних файлів...")
+    if os.path.exists(OUTPUT_JSON_FILE):
+        try:
+            shutil.copy(OUTPUT_JSON_FILE, BACKUP_RUN_JSON)
+            print(f" -> Збережено бекап JSON: {BACKUP_RUN_JSON}")
+        except Exception as e:
+            print(f" -> [ПОМИЛКА] Не вдалося створити бекап JSON: {e}")
+
+    if os.path.exists(OUTPUT_EXCEL_FILE):
+        try:
+            shutil.copy(OUTPUT_EXCEL_FILE, BACKUP_RUN_EXCEL)
+            print(f" -> Збережено бекап Excel: {BACKUP_RUN_EXCEL}")
+        except Exception as e:
+            print(f" -> [ПОМИЛКА] Не вдалося створити бекап Excel: {e}")
+
+def load_cached_provider_shops(provider_name):
+    """
+    Якщо живий запит не вдався, шукаємо дані оператора в існуючих бекапах:
+    1. Спочатку у щойно створеному BACKUP_RUN_JSON
+    2. Потім у файлі OUTPUT_JSON_FILE
+    3. Потім у локальному BACKUP_JSON_FILE
+    """
+    print(f" -> [ФОЛЛБЕК] Спроба зчитати дані для '{provider_name}' з попередніх бекапів...")
+    
+    for file_path in [BACKUP_RUN_JSON, OUTPUT_JSON_FILE, BACKUP_JSON_FILE]:
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    
+                    shops = [
+                        item for item in data 
+                        if isinstance(item, dict) and item.get("provider") == provider_name
+                    ]
+                    
+                    if shops:
+                        print(f" -> [ВІДНОВЛЕНО] Знайдено {len(shops)} точок '{provider_name}' у файлі {file_path}")
+                        return shops
+            except Exception as e:
+                print(f" -> Помилка читання файлу {file_path}: {e}")
+                
+    print(f" -> [УВАГА] Не вдалося знайти бекап для оператора '{provider_name}'. Повертаємо порожній список.")
+    return []
+
+# ------------------------------------------------------------
 # 1. LIFECELL (Суворо з локального бекап-файлу)
 # ------------------------------------------------------------
 def fetch_lifecell():
-    print(f"[1/3] Читаємо магазини lifecell з файлу: {BACKUP_JSON_FILE}...")
+    print(f"\n[1/3] Читаємо магазини lifecell з файлу: {BACKUP_JSON_FILE}...")
     
     if os.path.exists(BACKUP_JSON_FILE):
         try:
             with open(BACKUP_JSON_FILE, "r", encoding="utf-8") as f:
                 backup_data = json.load(f)
                 
-                # Забезпечуємо роботу як з чистим масивом lifecell, так і з загальним JSON
                 lifecell_shops = [
                     item for item in backup_data 
                     if isinstance(item, dict) and item.get("provider") == "lifecell"
@@ -65,13 +118,13 @@ def fetch_lifecell():
     else:
         print(f" -> [ПОМИЛКА] Файл {BACKUP_JSON_FILE} відсутній у репозиторії!")
 
-    return []
+    return load_cached_provider_shops("lifecell")
 
 # ------------------------------------------------------------
-# 2. VODAFONE (Живий запит)
+# 2. VODAFONE (Живий запит + Фоллбек на бекап)
 # ------------------------------------------------------------
 def fetch_vodafone():
-    print("[2/3] Завантажуємо магазини Vodafone з API...")
+    print("\n[2/3] Завантажуємо магазини Vodafone з API...")
     url = "https://www.vodafone.ua/shops/kyiv"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -86,8 +139,7 @@ def fetch_vodafone():
         script_tag = soup.find("script", id="ng-state")
 
         if not script_tag or not script_tag.string:
-            print(" -> Помилка: ng-state не знайдено або він порожній.")
-            return []
+            raise ValueError("ng-state не знайдено або він порожній.")
 
         data = json.loads(script_tag.string)
         normalized = []
@@ -140,18 +192,21 @@ def fetch_vodafone():
                 seen.add(key)
                 unique.append(shop)
 
-        print(f" -> Знайдено {len(unique)} магазинів Vodafone.")
+        if not unique:
+            raise ValueError("Отримано 0 записів після обробки.")
+
+        print(f" -> УСПІХ: Знайдено {len(unique)} магазинів Vodafone.")
         return unique
 
     except Exception as e:
-        print(f" -> Помилка при отриманні Vodafone: {e}")
-        return []
+        print(f" -> [ПОМИЛКА Vodafone]: {e}")
+        return load_cached_provider_shops("vodafone")
 
 # ------------------------------------------------------------
-# 3. KYIVSTAR (Живий запит)
+# 3. KYIVSTAR (Живий запит + Фоллбек на бекап)
 # ------------------------------------------------------------
 def fetch_kyivstar():
-    print("[3/3] Завантажуємо магазини Kyivstar з API...")
+    print("\n[3/3] Завантажуємо магазини Kyivstar з API...")
     url = "https://kyivstar.ua/api/pos-shops?locale=uk&start=0&limit=10000"
     
     headers = {
@@ -200,8 +255,8 @@ def fetch_kyivstar():
                 for wh in wh_list:
                     if isinstance(wh, dict):
                         day = wh.get("dayOfWeek", "")
-                        start = wh.get("startTime", "")[:5]
-                        end = wh.get("endTime", "")[:5]
+                        start = (wh.get("startTime") or "")[:5]
+                        end = (wh.get("endTime") or "")[:5]
                         is_holiday = wh.get("isHoliday", False)
                         if is_holiday:
                             wh_str_list.append(f"{day}: Вихідний")
@@ -222,12 +277,15 @@ def fetch_kyivstar():
                 "working_hours": working_hours
             })
 
-        print(f" -> Знайдено {len(normalized)} магазинів Kyivstar.")
+        if not normalized:
+            raise ValueError("Отримано 0 записів від Kyivstar API.")
+
+        print(f" -> УСПІХ: Знайдено {len(normalized)} магазинів Kyivstar.")
         return normalized
 
     except Exception as e:
-        print(f" -> Помилка при отриманні Kyivstar: {e}")
-        return []
+        print(f" -> [ПОМИЛКА Kyivstar]: {e}")
+        return load_cached_provider_shops("kyivstar")
 
 # ------------------------------------------------------------
 # 4. REVERSE GEOCODING (Область за координатами)
@@ -235,22 +293,26 @@ def fetch_kyivstar():
 def enrich_with_regions(shops):
     print("\n[Геолокація] Визначаємо області за координатами через reverse_geocoder...")
     
-    coords = [(shop["lat"], shop["lng"]) for shop in shops]
+    coords = [(shop["lat"], shop["lng"]) for shop in shops if "lat" in shop and "lng" in shop]
     if not coords:
         return shops
 
-    results = rg.search(coords)
+    try:
+        results = rg.search(coords)
 
-    for i, shop in enumerate(shops):
-        res = results[i]
-        admin1 = res.get("admin1", "").replace(" Oblast", "").strip()
-        ua_region = REGION_MAP.get(admin1, admin1)
+        for i, shop in enumerate(shops):
+            res = results[i]
+            admin1 = res.get("admin1", "").replace(" Oblast", "").strip()
+            ua_region = REGION_MAP.get(admin1, admin1)
+            
+            shop["geo_region"] = ua_region
+            if not shop.get("region"):
+                shop["region"] = ua_region
+
+        print(" -> Області успішно додані!")
+    except Exception as e:
+        print(f" -> [ПОМИЛКА Geocoding]: {e}")
         
-        shop["geo_region"] = ua_region
-        if not shop.get("region"):
-            shop["region"] = ua_region
-
-    print(" -> Області успішно додані!")
     return shops
 
 # ------------------------------------------------------------
@@ -258,40 +320,54 @@ def enrich_with_regions(shops):
 # ------------------------------------------------------------
 def main():
     print("=" * 60)
-    print("ЗБІР ДАНИХ МАГАЗИНІВ Мобільних Операторів")
+    print("ЗБІР ДАНИХ МАГАЗИНІВ МОБІЛЬНИХ ОПЕРАТОРІВ (З ЗАХИСТОМ ТА БЕКАПОМ)")
     print("=" * 60)
 
+    # Step 0: Робимо бекап існуючих результатів перед оновленням
+    make_initial_backup()
+
+    # Step 1-3: Отримуємо дані (з підтримкою автоматичного фоллбеку на бекап при падінні)
     lifecell_shops = fetch_lifecell()
     vodafone_shops = fetch_vodafone()
     kyivstar_shops = fetch_kyivstar()
 
     all_shops = lifecell_shops + vodafone_shops + kyivstar_shops
 
+    if not all_shops:
+        print("\n[КРИТИЧНО] Жоден провайдер не повернув даних і бекапи відсутні. Скасування збереження.")
+        return
+
     # Збагачуємо всі записи областю за координатами
     all_shops = enrich_with_regions(all_shops)
 
     # Збереження у JSON
-    with open(OUTPUT_JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(all_shops, f, ensure_ascii=False, indent=2)
-    print(f"\n[УСПІХ] Збережено JSON: {OUTPUT_JSON_FILE}")
+    try:
+        with open(OUTPUT_JSON_FILE, "w", encoding="utf-8") as f:
+            json.dump(all_shops, f, ensure_ascii=False, indent=2)
+        print(f"\n[УСПІХ] Збережено JSON: {OUTPUT_JSON_FILE}")
+    except Exception as e:
+        print(f"\n[ПОМИЛКА] Не вдалося зберегти JSON: {e}")
 
     # Збереження в Excel
-    df = pd.DataFrame(all_shops)
-    df.rename(columns={
-        "provider": "Оператор",
-        "id": "ID",
-        "name": "Назва/Орієнтир",
-        "address": "Адреса",
-        "city": "Місто",
-        "region": "Область (оригінал)",
-        "geo_region": "Область (визначена)",
-        "lat": "Широта",
-        "lng": "Довгота",
-        "working_hours": "Графік роботи"
-    }, inplace=True)
-    
-    df.to_excel(OUTPUT_EXCEL_FILE, index=False)
-    print(f"[УСПІХ] Збережено Excel: {OUTPUT_EXCEL_FILE}")
+    try:
+        df = pd.DataFrame(all_shops)
+        df.rename(columns={
+            "provider": "Оператор",
+            "id": "ID",
+            "name": "Назва/Орієнтир",
+            "address": "Адреса",
+            "city": "Місто",
+            "region": "Область (оригінал)",
+            "geo_region": "Область (визначена)",
+            "lat": "Широта",
+            "lng": "Довгота",
+            "working_hours": "Графік роботи"
+        }, inplace=True)
+        
+        df.to_excel(OUTPUT_EXCEL_FILE, index=False)
+        print(f"[УСПІХ] Збережено Excel: {OUTPUT_EXCEL_FILE}")
+    except Exception as e:
+        print(f"[ПОМИЛКА] Не вдалося зберегти Excel: {e}")
 
     print("\nПідсумок:")
     print(f" - lifecell: {len(lifecell_shops)}")
