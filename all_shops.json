@@ -4465,6 +4465,18 @@
   },
   {
     "provider": "vodafone",
+    "id": 396549,
+    "name": "Vodafone",
+    "address": "вул. Київська, 1/49",
+    "city": "Кременчук",
+    "region": "Полтавська область",
+    "lat": 49.08917,
+    "lng": 33.42758,
+    "working_hours": "<p><span>Пн-вихідний</span></p>\n<p><span>Вт-Сб 09:00-19:00</span></p>\n<p><span>Нд 09:00-15:00</span></p>",
+    "geo_region": "Полтавська"
+  },
+  {
+    "provider": "vodafone",
     "id": 396039,
     "name": "Vodafone",
     "address": "вул. Шевченко, 107-А",
@@ -4773,18 +4785,6 @@
     "lat": 49.37957,
     "lng": 33.27143,
     "working_hours": "<p><span>Пн-Сб 08:00-18:00</span></p>\n<p><span>Нд 08:00-17:00</span></p>",
-    "geo_region": "Полтавська"
-  },
-  {
-    "provider": "vodafone",
-    "id": 395743,
-    "name": "Vodafone",
-    "address": "вул. Київська, 1/49",
-    "city": "Кременчук",
-    "region": "Полтавська область",
-    "lat": 49.08917,
-    "lng": 33.42758,
-    "working_hours": "<p>Пн-Сб 09:00-19:00\nНд 09:00-18:00</p>",
     "geo_region": "Полтавська"
   },
   {
@@ -5122,6 +5122,18 @@
     "lng": 25.32758,
     "working_hours": "Пн-Пт 09:00-20:00\nСб 09:00-19:00\n Нд 10:00-18:00",
     "geo_region": "Волинська"
+  },
+  {
+    "provider": "vodafone",
+    "id": 396555,
+    "name": "Vodafone",
+    "address": "вул. Дніпровська, 218",
+    "city": "Мерефа",
+    "region": "Харківська область",
+    "lat": 49.80912,
+    "lng": 36.054625,
+    "working_hours": "<p><span>Пн-Нд 08:00-17:00</span></p>",
+    "geo_region": "Харківська"
   },
   {
     "provider": "vodafone",
@@ -7777,18 +7789,6 @@
   },
   {
     "provider": "vodafone",
-    "id": 395843,
-    "name": "Vodafone",
-    "address": "вул. Березинська, 24",
-    "city": "Дніпро",
-    "region": "Дніпропетровська область",
-    "lat": 48.52547,
-    "lng": 35.03447,
-    "working_hours": "Пн-Нд 10:00-19:00",
-    "geo_region": "Дніпропетровська"
-  },
-  {
-    "provider": "vodafone",
     "id": 396516,
     "name": "Центральний автовокзал",
     "address": "вул. Рівненська, 1",
@@ -8422,18 +8422,6 @@
     "lng": 32.26647,
     "working_hours": "Пн-Сб 10:00-19:00\nНд 10:00-18:00",
     "geo_region": "Кіровоградська"
-  },
-  {
-    "provider": "vodafone",
-    "id": 396529,
-    "name": "ТЦ \"Простор\"",
-    "address": "вул. Паркова, 20-П",
-    "city": "Краматорськ",
-    "region": "Донецька область",
-    "lat": 47.0561,
-    "lng": 37.31068,
-    "working_hours": "<p><span>Пн-Вихідний</span></p>\n<p><span>Вт-Пт 09:00-17:00</span></p>\n<p><span>Сб-Нд 09:00-16:00</span></p>",
-    "geo_region": "Донецька"
   },
   {
     "provider": "vodafone",
